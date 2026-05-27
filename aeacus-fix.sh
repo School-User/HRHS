@@ -137,12 +137,9 @@ COMMON_AUTH_EOF
 
 echo "✓ /etc/pam.d/common-auth hardened with faillock"
 
-# Apply password aging to existing users (mindays=2, maxdays=90, warndays=14)
-echo "[*] Applying password aging to all users..."
-for user in $(awk -F: '$3 >= 1000 && $3 != 65534 {print $1}' /etc/passwd); do
-  chage -m 2 -M 90 -I 30 -W 14 "$user" 2>/dev/null || true
-done
-echo "✓ Password aging applied"
+# Password aging is NOT applied here to avoid locking out users
+# Apply manually to specific users only if needed
+echo "○ Password aging skipped (apply manually if needed)"
 
 ###############################################################################
 # VULN #10-14: REMOVE BAD SOFTWARE
