@@ -1,13 +1,12 @@
 #!/bin/bash
-# CyberPatriot Ubuntu 22.04 Remediation Script (v2 - CORRECTED)
-# Targets: 25 vulnerabilities x 4pts + 2 bonus x 5pts = 110 points
-# RUN AS: sudo bash cyberpatriot_remediate_v2.sh 2>&1 | tee remediate.log
+# CyberPatriot Ubuntu 22.04 Remediation Script (CLEAN - NO PASSWORD POLICIES)
+# RUN AS: sudo bash cyberpatriot_remediate_clean.sh 2>&1 | tee remediate.log
 
 set -e
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_DIR="/root/cp_backup_${TIMESTAMP}"
 
-echo "=== CYBERPATRIOT REMEDIATION v2 START: $(date) ==="
+echo "=== CYBERPATRIOT REMEDIATION START: $(date) ==="
 echo "Backup directory: $BACKUP_DIR"
 echo ""
 
@@ -53,93 +52,6 @@ echo "✓ kast GID = 1016"
 echo "[*] Adding vlad to sudo..."
 usermod -aG sudo vlad 2>/dev/null || true
 echo "✓ vlad in sudo"
-
-###############################################################################
-# VULN #4-9: PASSWORD POLICIES
-###############################################################################
-echo ""
-echo "=== FIXING PASSWORD POLICIES ==="
-
-# Backup original files
-cp /etc/login.defs "$BACKUP_DIR/login.defs.orig" 2>/dev/null || true
-cp /etc/security/pwquality.conf "$BACKUP_DIR/pwquality.conf.orig" 2>/dev/null || true
-cp /etc/pam.d/common-password "$BACKUP_DIR/common-password.orig" 2>/dev/null || true
-cp /etc/pam.d/common-auth "$BACKUP_DIR/common-auth.orig" 2>/dev/null || true
-
-# FIX /etc/login.defs - DIRECT REPLACEMENT
-echo "[*] Hardening /etc/login.defs..."
-sed -i 's/^PASS_MAX_DAYS.*/PASS_MAX_DAYS   90/' /etc/login.defs
-sed -i 's/^PASS_MIN_DAYS.*/PASS_MIN_DAYS   2/' /etc/login.defs
-sed -i 's/^PASS_WARN_AGE.*/PASS_WARN_AGE   14/' /etc/login.defs
-sed -i 's/^ENCRYPT_METHOD.*/ENCRYPT_METHOD YESCRYPT/' /etc/login.defs
-sed -i 's/^LOGIN_RETRIES.*/LOGIN_RETRIES 5/' /etc/login.defs
-
-# Verify changes
-PASS_MAX=$(grep "^PASS_MAX_DAYS" /etc/login.defs | awk '{print $2}')
-echo "✓ /etc/login.defs updated (PASS_MAX_DAYS=$PASS_MAX)"
-
-# FIX /etc/security/pwquality.conf - COMPLETE REWRITE
-echo "[*] Hardening /etc/security/pwquality.conf..."
-cat > /etc/security/pwquality.conf << 'PWQUALITY_EOF'
-# Password quality requirements
-minlen = 14
-dcredit = -1
-ucredit = -1
-lcredit = -1
-ocredit = -1
-minclass = 4
-maxrepeat = 3
-maxsequence = 3
-retry = 3
-difok = 5
-gecoscheck = 1
-enforce_for_root
-PWQUALITY_EOF
-
-MINLEN=$(grep "^minlen" /etc/security/pwquality.conf | awk '{print $3}')
-echo "✓ /etc/security/pwquality.conf updated (minlen=$MINLEN)"
-
-# Ensure libpam-pwquality is installed
-apt-get install -y libpam-pwquality >/dev/null 2>&1 || true
-
-# FIX /etc/pam.d/common-password - COMPLETE REWRITE
-echo "[*] Hardening /etc/pam.d/common-password..."
-cat > /etc/pam.d/common-password << 'COMMON_PASSWORD_EOF'
-#
-# /etc/pam.d/common-password - password-related modules common to all services
-#
-password requisite pam_pwquality.so retry=3
-password required pam_pwhistory.so remember=5 enforce_for_root
-password [success=2 default=ignore] pam_unix.so obscure use_authtok try_first_pass yescrypt minlen=14 remember=5
-password sufficient pam_sss.so use_authtok
-password requisite pam_deny.so
-password required pam_permit.so
-password optional pam_gnome_keyring.so
-COMMON_PASSWORD_EOF
-
-echo "✓ /etc/pam.d/common-password hardened"
-
-# FIX /etc/pam.d/common-auth - ADD FAILLOCK
-echo "[*] Hardening /etc/pam.d/common-auth..."
-cat > /etc/pam.d/common-auth << 'COMMON_AUTH_EOF'
-#
-# /etc/pam.d/common-auth - authentication settings common to all services
-#
-auth required pam_faillock.so preauth silent audit deny=5 unlock_time=900
-auth [success=2 default=ignore] pam_unix.so nullok
-auth [default=die] pam_faillock.so authfail audit deny=5 unlock_time=900
-auth [success=1 default=ignore] pam_sss.so use_first_pass
-auth requisite pam_deny.so
-auth required pam_permit.so
-auth optional pam_cap.so
-auth sufficient pam_faillock.so authsucc
-COMMON_AUTH_EOF
-
-echo "✓ /etc/pam.d/common-auth hardened with faillock"
-
-# Password aging is NOT applied here to avoid locking out users
-# Apply manually to specific users only if needed
-echo "○ Password aging skipped (apply manually if needed)"
 
 ###############################################################################
 # VULN #10-14: REMOVE BAD SOFTWARE
@@ -189,7 +101,6 @@ systemctl disable bluetooth.service 2>/dev/null || true
 systemctl stop bluetooth.service 2>/dev/null || true
 echo "✓ Bluetooth disabled"
 
-# NOTE: Do NOT disable snapd (README says don't disable CSSClient, keep services running)
 echo "○ snapd kept running (per README guidelines)"
 
 ###############################################################################
@@ -201,7 +112,6 @@ echo "=== HARDENING SSH ==="
 echo "[*] Backing up sshd_config..."
 cp /etc/ssh/sshd_config "$BACKUP_DIR/sshd_config.orig"
 
-# COMPLETE REWRITE of sshd_config
 echo "[*] Rewriting sshd_config..."
 cat > /etc/ssh/sshd_config << 'SSHD_EOF'
 # CyberPatriot Hardened SSH Configuration
@@ -281,16 +191,10 @@ echo "=== ENABLING FIREWALL (UFW) ==="
 
 echo "[*] Enabling UFW..."
 ufw --force enable >/dev/null 2>&1
-
-# Set default policies
 ufw default deny incoming >/dev/null 2>&1
 ufw default allow outgoing >/dev/null 2>&1
-
-# Allow SSH
-echo "[*] Allowing SSH..."
 ufw allow 22/tcp >/dev/null 2>&1
 
-# Verify UFW status
 if ufw status | grep -q "Status: active"; then
   echo "✓ UFW enabled and SSH allowed"
 else
@@ -306,13 +210,9 @@ echo "=== HARDENING KERNEL / SYSCTL ==="
 echo "[*] Backing up sysctl.conf..."
 cp /etc/sysctl.conf "$BACKUP_DIR/sysctl.conf.orig"
 
-# Append hardening settings (remove duplicates first if they exist)
 echo "[*] Applying sysctl hardening..."
-
-# Remove any existing hardening lines to avoid duplicates
 sed -i '/# CyberPatriot TCP/,+50d' /etc/sysctl.conf 2>/dev/null || true
 
-# Append new hardening configuration
 cat >> /etc/sysctl.conf << 'SYSCTL_EOF'
 
 # CyberPatriot TCP/IP Hardening
@@ -347,17 +247,15 @@ fs.protected_symlinks = 1
 fs.suid_dumpable = 0
 SYSCTL_EOF
 
-# Load new sysctl settings
 sysctl -p >/dev/null 2>&1
 echo "✓ Sysctl hardening applied"
 
 ###############################################################################
-# BONUS #1: FILE PERMISSIONS
+# FILE PERMISSIONS
 ###############################################################################
 echo ""
 echo "=== FIXING FILE PERMISSIONS ==="
 
-echo "[*] Fixing .bash_history permissions..."
 for user in abby avery secuser; do
   hist="/home/$user/.bash_history"
   if [ -f "$hist" ]; then
@@ -366,20 +264,11 @@ for user in abby avery secuser; do
   fi
 done
 
-if [ -f "/home/secuser/Downloads/aeacus-linux/phocus" ]; then
-  chmod 644 "/home/secuser/Downloads/aeacus-linux/phocus"
-  echo "✓ phocus = 644"
-fi
-
 ###############################################################################
 # FINAL SUMMARY
 ###############################################################################
 echo ""
 echo "=== REMEDIATION COMPLETE ==="
 echo "Backup: $BACKUP_DIR"
-echo ""
-echo "Next steps:"
-echo "1. Run: sudo bash cyberpatriot_verify.sh"
-echo "2. Check Scoring Report on Desktop"
 echo ""
 echo "=== END: $(date) ==="
