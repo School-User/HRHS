@@ -372,19 +372,6 @@ if [ -f "/home/secuser/Downloads/aeacus-linux/phocus" ]; then
 fi
 
 ###############################################################################
-# BONUS #2: SUDO/GROUP VERIFICATION
-###############################################################################
-echo ""
-echo "=== VERIFYING SUDO ACCESS ==="
-
-for admin in secuser avery alex debolt vlad; do
-  if id $admin &>/dev/null; then
-    usermod -aG sudo $admin 2>/dev/null || true
-    echo "✓ $admin has sudo"
-  fi
-done
-
-###############################################################################
 # FINAL SUMMARY
 ###############################################################################
 echo ""
